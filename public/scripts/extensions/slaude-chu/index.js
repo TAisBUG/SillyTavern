@@ -3,7 +3,7 @@ import {getContext, extension_settings} from "../../extensions.js";
 import {sendOpenAIRequest} from "../../openai.js";
 
 export {MODULE_NAME};
-const MODULE_NAME = 'slaude_chu';
+const MODULE_NAME = 'slaude-chu';
 const UPDATE_INTERVAL = 1000;
 
 
