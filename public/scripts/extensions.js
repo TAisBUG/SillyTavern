@@ -65,6 +65,8 @@ const extension_settings = {
     translate: {},
     objective: {},
     quickReply: {},
+    slaudeChu: {},
+    claude2Chu: {},
     randomizer: {
         controls: [],
         fluctuation: 0.1,
