@@ -1,0 +1,11 @@
+{
+    "display_name": "slaude内置_初",
+    "loading_order": 15,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "RossAscends#1779",
+    "version": "1.0.0",
+    "homePage": "https://github.com/PandarusAnon/slaude"
+}
