@@ -124,8 +124,8 @@ let response_getstatus;
 const rename_roles = {
     'user': 'Human',
     'assistant': 'Assistant',
-    'example_user': 'H',
-    'example_assistant': 'A'
+    'example_user': 'Human',
+    'example_assistant': 'Assistant'
 }
 const typingString = "\n\n_Typing…_";
 var lastMessage = '';
