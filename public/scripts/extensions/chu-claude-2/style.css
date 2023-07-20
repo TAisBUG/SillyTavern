@@ -1,0 +1,30 @@
+#slaudeChulies {
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    flex-wrap: nowrap;
+    gap: 5px;
+    width: 100%;
+}
+
+#slaudeChulies div {
+    color: var(--SmartThemeBodyColor);
+    background-color: var(--black50a);
+    border: 1px solid var(--white30a);
+    border-radius: 10px;
+    padding: 3px 5px;
+    width: min-content;
+    cursor: pointer;
+    transition: 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+#slaudeChulies div:hover {
+    opacity: 1;
+    filter: brightness(1.2);
+    cursor: pointer;
+}

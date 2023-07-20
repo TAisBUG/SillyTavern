@@ -306,6 +306,7 @@ app.use(doubleCsrfProtection);
 
 // CORS Settings //
 const cors = require('cors');
+const {default: fetch} = require("node-fetch");
 
 const CORS = cors({
     origin: 'null',
@@ -2975,7 +2976,7 @@ app.get('/thumbnail', jsonParser, async function (request, response) {
 
 /* OpenAI */
 app.post("/getstatus_openai", jsonParser, function (request, response_getstatus_openai = response) {
-    if (request.body.use_chu_set_model === 'claude-2.0' || request.body.use_chu_set_model === 'slack-claude') {
+    if (request.body.use_chu_set_model === 'claude-2' || request.body.use_chu_set_model === 'slack-claude') {
         // 在这里执行相关操作
         return response_getstatus_openai.send({
             object: 'list',
@@ -3164,9 +3165,9 @@ function convertClaudePrompt(messages, addHumanPrefix, addAssistantPostfix) {
             case "system":
                 // According to the Claude docs, H: and A: should be used for example conversations.
                 if (v.name === "example_assistant") {
-                    prefix = "\n\nA: ";
+                    prefix = "\n\nAssistant: ";
                 } else if (v.name === "example_user") {
-                    prefix = "\n\nH: ";
+                    prefix = "\n\nHuman: ";
                 } else {
                     prefix = "\n\n";
                 }
@@ -3474,7 +3475,7 @@ async function sendslackClaudeRequest(req, res) {
 }
 
 function convertToPrompt(msg) {
-    // console.log(`发送类型:${msg.role}\n发送内容:${msg.content}`);
+
     if (msg.role === 'system') {
         if ('name' in msg) {
             return `${rename_roles[msg.name]}: ${msg.content}\n\n`
@@ -3642,24 +3643,210 @@ async function sendClaudeRequest(request, response) {
     }
 }
 
+async function getUUID(chuclaude2) {
+    try {
+        const response = await fetch('https://claude.ai/api/organizations', {
+            headers: {
+                'cookie': chuclaude2,
+                'DNT': '1',
+                'content-type': 'application/json',
+                'Origin': 'https://claude.ai',
+                'Pragma': 'no-cache',
+                'Referer': 'https://claude.ai/chats',
+                'Sec-Ch-UA': '"Chromium";v="112", "Microsoft Edge";v="112", "Not:A-Brand";v="99"',
+                'Sec-Ch-UA-Mobile': '?0',
+                'Sec-Ch-UA-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/112.0.1722.64',
+            },
+        });
+        console.log(response.status)
+        if (!response.ok) {
+            throw new Error('Failed to fetch data');
+        }
+
+        const data = await response.json();
+        const uuid = data[0].uuid;
+        return uuid;
+    } catch (error) {
+        console.error('Error:', error.message);
+        return null;
+    }
+}
+
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}
+
+async function getCHATUUID(chuclaude2, organ_uuid) {
+    try {
+        const chatUUID = generateUUID(); // 生成随机的UUID
+        const requestBody = {uuid: chatUUID, name: ''}; // 准备请求负载数据
+        const response = await fetch(`https://claude.ai/api/organizations/${organ_uuid}/chat_conversations`, {
+            method: 'POST',
+            headers: {
+                'cookie': chuclaude2,
+                'DNT': '1',
+                'content-type': 'application/json',
+                'Origin': 'https://claude.ai',
+                'Pragma': 'no-cache',
+                'Referer': 'https://claude.ai/chats',
+                'Sec-Ch-UA': '"Chromium";v="112", "Microsoft Edge";v="112", "Not:A-Brand";v="99"',
+                'Sec-Ch-UA-Mobile': '?0',
+                'Sec-Ch-UA-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/112.0.1722.64',
+            },
+            body: JSON.stringify(requestBody),
+        });
+        console.log(response.status)
+        if (!response.ok) {
+            throw new Error('Failed to fetch data');
+        }
+
+        const data = await response.json();
+        const chatuuid = data.uuid;
+
+        return chatuuid;
+    } catch (error) {
+        console.error('Error:', error.message);
+        return null;
+    }
+}
+
+async function sendchuClaudeRequest(request, response) {
+    const fetch = require('node-fetch').default;
+
+    const chuClaude2 = request.body.chuclaude2?.COOKIE;
+
+    if (!chuClaude2) {
+        return response.status(401).send({error: true});
+    }
+
+    try {
+        const uuid = await getUUID(chuClaude2);
+
+        if (!uuid) {
+            console.log('Failed to get UUID.');
+            return response.status(401).send({error: true});
+        }
+        const chat_uuid = await getCHATUUID(chuClaude2, uuid);
+
+        if (!chat_uuid) {
+            console.log('Failed to get CHATUUID.');
+            return response.status(401).send({error: true});
+        }
+        const controller = new AbortController();
+        request.socket.removeAllListeners('close');
+        request.socket.on('close', () => {
+            controller.abort();
+        });
+
+        const requestPrompt = convertClaudePrompt(request.body.messages, false, true);
+        console.log('Claude request:', requestPrompt);
+
+        const generateResponse = await fetch('https://claude.ai/api/append_message', {
+            method: "POST",
+            signal: controller.signal,
+            body: JSON.stringify({
+                completion: {
+                    prompt: requestPrompt,
+                    model: request.body.model,
+                    timezone: "Asia/Shanghai",
+                    incremental: request.body.stream,
+                    max_tokens_to_sample: request.body.max_tokens,
+                    stop_sequences: ["\n\nHuman:", "\n\nSystem:", "\n\nAssistant:"],
+                    temperature: request.body.temperature,
+                    top_p: request.body.top_p,
+                    top_k: request.body.top_k,
+                    stream: request.body.stream,
+                },
+                conversation_uuid: chat_uuid,
+                organization_uuid: uuid,
+                text: requestPrompt,
+                attachments: [],
+            }),
+            headers: {
+                'cookie': chuClaude2,
+                'DNT': '1',
+                'content-type': 'application/json',
+                'Origin': 'https://claude.ai',
+                'Pragma': 'no-cache',
+                'Referer': `https://claude.ai/chat/${chat_uuid}`,
+                'Sec-Ch-UA': '"Chromium";v="112", "Microsoft Edge";v="112", "Not:A-Brand";v="99"',
+                'Sec-Ch-UA-Mobile': '?0',
+                'Sec-Ch-UA-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/112.0.1722.64',
+            },
+            timeout: 0,
+        });
+
+        if (!generateResponse.ok) {
+            console.log(`Claude API returned error: ${generateResponse.status} ${generateResponse.statusText} ${await generateResponse.text()}`);
+            return response.status(generateResponse.status).send({error: true});
+        }
+        if (request.body.stream) {
+             response.setHeader("Content-Type", "text/event-stream");
+            // Pipe remote SSE stream to Express response
+            generateResponse.body.pipe(response);
+
+            request.socket.on('close', function () {
+                generateResponse.body.destroy(); // Close the remote stream
+                response.end(); // End the Express response
+            });
+
+            generateResponse.body.on('end', function () {
+                console.log("Streaming request finished");
+                response.end();
+            });
+        } else {
+            const decoded_response = await generateResponse.text();
+            // Convert the decoded response to an array of lines
+            const lines = decoded_response.trim().split('\n');
+            let chu = '';
+            for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                    try {
+                        const json_data = JSON.parse(line.substring(6).trim());
+                        if ('error' in json_data) {
+                            console.log(json_data);
+                        } else if ('completion' in json_data) {
+                            chu = json_data.completion;
+                        }
+                    } catch (error) {
+                        // Handle JSON parsing errors, if needed
+                    }
+                }
+            }
+            console.log('Claude response:', chu);
+            // Wrap it back to OAI format
+            const reply = {choices: [{"message": {"content": chu}}]};
+            return response.send(reply);
+        }
+    } catch
+        (error) {
+        console.log('Error communicating with Claude: ', error);
+        if (!response.headersSent) {
+            return response.status(500).send({error: true});
+        }
+    }
+}
+
 app.post("/generate_openai", jsonParser, function (request, response_generate_openai) {
     let api_key_openai;
-    if (request.body.model === 'claude-2.0') {
-        api_key_openai = readSecret(SECRET_KEYS.OPENAI);
-        console.log(api_key_openai)
-        // 在这里执行相关操作
-        return response_generate_openai.send({
-            object: 'list',
-            data: [{
-                id: request.body.use_chu_set_model,
-                object: 'model',
-                created: Date.now(),
-                owned_by: 'anthropic',
-                permission: [],
-                root: request.body.use_chu_set_model,
-                parent: null
-            }]
-        });
+    if (request.body.model === 'claude-2') {
+        return sendchuClaudeRequest(request, response_generate_openai);
     }
     if (request.body.model === 'slack-claude') {
         return sendslackClaudeRequest(request, response_generate_openai);
