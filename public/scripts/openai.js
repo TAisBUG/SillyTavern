@@ -809,7 +809,9 @@ async function sendOpenAIRequest(type, openai_msgs_tosend, signal) {
     }
     if (extension_settings.claude2Chu.claude2ChuAuto_connect && generate_data.model === 'claude-2') {
         generate_data.chuclaude2 = {
-            COOKIE: extension_settings.claude2Chu.COOKIE
+            COOKIE: extension_settings.claude2Chu.COOKIE,
+            SENDF: extension_settings.claude2Chu.claude2_chu_Send_as_File_Format,
+            AUTODELETE:  extension_settings.claude2Chu.claude2_chu_auto_delete_chat_session
         };
     }
 

@@ -3805,10 +3805,47 @@ async function getCHATUUID(chuclaude2, organ_uuid) {
     }
 }
 
+async function delCHATUUID(chuclaude2, organ_uuid, chat_uuid) {
+    try {
+        const requestBody = {chat_uuid}; // Corrected the object property
+        const response = await fetch(`https://claude.ai/api/organizations/${organ_uuid}/chat_conversations/${chat_uuid}`, {
+            method: 'DELETE',
+            headers: {
+                'cookie': chuclaude2,
+                'DNT': '1',
+                'content-type': 'application/json',
+                'Origin': 'https://claude.ai',
+                'Pragma': 'no-cache',
+                'Referer': 'https://claude.ai/chats',
+                'Sec-Ch-UA': '"Chromium";v="112", "Microsoft Edge";v="112", "Not:A-Brand";v="99"',
+                'Sec-Ch-UA-Mobile': '?0',
+                'Sec-Ch-UA-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/112.0.1722.64',
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        console.log(response.status);
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch data');
+        }
+    } catch (error) {
+        console.error('Error:', error.message);
+        return null;
+    }
+}
+
+
 async function sendchuClaudeRequest(request, response) {
     const fetch = require('node-fetch').default;
 
     const chuClaude2 = request.body.chuclaude2?.COOKIE;
+    const SENDF = request.body.chuclaude2?.SENDF;
+    const AUTODELETE = request.body.chuclaude2?.AUTODELETE;
 
     if (!chuClaude2) {
         return response.status(401).send({error: true});
@@ -3835,27 +3872,42 @@ async function sendchuClaudeRequest(request, response) {
 
         const requestPrompt = convertchuClaude2Prompt(request.body.messages, false, false);
         console.log('Claude request:', requestPrompt);
-        const generateResponse = await fetch('https://claude.ai/api/append_message', {
+
+        const prompt = SENDF ? '' : requestPrompt;
+        const attachments = SENDF
+            ? [
+                {
+                    file_type: "pdf",
+                    file_size: 999999,
+                    file_name: "*.pdf",
+                    extracted_content: requestPrompt,
+                },
+            ]
+            : [];
+
+        const requestBody = {
+            completion: {
+                prompt: prompt,
+                model: request.body.model,
+                timezone: "Asia/Shanghai",
+                incremental: request.body.stream,
+                max_tokens_to_sample: request.body.max_tokens,
+                stop_sequences: ["\n\nHuman:", "\n\nSystem:", "\n\nAssistant:"],
+                temperature: request.body.temperature,
+                top_p: request.body.top_p,
+                top_k: request.body.top_k,
+                stream: request.body.stream,
+            },
+            conversation_uuid: chat_uuid,
+            organization_uuid: uuid,
+            text: prompt,
+            attachments: attachments,
+        };
+
+        const generateResponse = await fetch("https://claude.ai/api/append_message", {
             method: "POST",
             signal: controller.signal,
-            body: JSON.stringify({
-                completion: {
-                    prompt: requestPrompt,
-                    model: request.body.model,
-                    timezone: "Asia/Shanghai",
-                    incremental: request.body.stream,
-                    max_tokens_to_sample: request.body.max_tokens,
-                    stop_sequences: ["\n\nHuman:", "\n\nSystem:", "\n\nAssistant:"],
-                    temperature: request.body.temperature,
-                    top_p: request.body.top_p,
-                    top_k: request.body.top_k,
-                    stream: request.body.stream,
-                },
-                conversation_uuid: chat_uuid,
-                organization_uuid: uuid,
-                text: requestPrompt,
-                attachments: [],
-            }),
+            body: JSON.stringify(requestBody),
             headers: {
                 'cookie': chuClaude2,
                 'DNT': '1',
@@ -3915,6 +3967,7 @@ async function sendchuClaudeRequest(request, response) {
             const reply = {choices: [{"message": {"content": chu}}]};
             return response.send(reply);
         }
+        AUTODELETE && await delCHATUUID(chuClaude2, uuid, chat_uuid);
     } catch
         (error) {
         console.log('Error communicating with Claude: ', error);
