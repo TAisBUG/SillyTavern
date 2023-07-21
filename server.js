@@ -307,6 +307,8 @@ app.use(doubleCsrfProtection);
 // CORS Settings //
 const cors = require('cors');
 const {default: fetch} = require("node-fetch");
+const pkgJson = require("../cs/SillyTavern - 测试/package.json");
+const bw = require("../cs/SillyTavern - 测试/src/bad-words");
 
 const CORS = cors({
     origin: 'null',
@@ -734,9 +736,7 @@ function getVersion() {
                 .execSync('git rev-parse --short HEAD', {cwd: process.cwd(), stdio: ['ignore', 'pipe', 'ignore']})
                 .toString().trim();
 
-            gitBranch = require('child_process')
-                .execSync('git rev-parse --abbrev-ref HEAD', {cwd: process.cwd(), stdio: ['ignore', 'pipe', 'ignore']})
-                .toString().trim();
+            gitBranch = '初改[内置slaude、claude2.0、支持自定义SD远程本地]';
         }
     } catch {
         // suppress exception
