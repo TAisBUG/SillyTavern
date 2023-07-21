@@ -307,8 +307,6 @@ app.use(doubleCsrfProtection);
 // CORS Settings //
 const cors = require('cors');
 const {default: fetch} = require("node-fetch");
-const pkgJson = require("../cs/SillyTavern - 测试/package.json");
-const bw = require("../cs/SillyTavern - 测试/src/bad-words");
 
 const CORS = cors({
     origin: 'null',
