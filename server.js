@@ -3833,7 +3833,7 @@ async function sendchuClaudeRequest(request, response) {
             controller.abort();
         });
 
-        const requestPrompt = convertchuClaude2Prompt(request.body.messages, true, true);
+        const requestPrompt = convertchuClaude2Prompt(request.body.messages, false, false);
         console.log('Claude request:', requestPrompt);
         const generateResponse = await fetch('https://claude.ai/api/append_message', {
             method: "POST",
