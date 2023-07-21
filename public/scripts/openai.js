@@ -816,89 +816,57 @@ async function sendOpenAIRequest(type, openai_msgs_tosend, signal) {
     requestOptions.body = JSON.stringify(generate_data);
     const response = await fetch(generate_url, requestOptions);
     if (stream) {
-        if (extension_settings.claude2Chu.claude2ChuAuto_connect && generate_data.model === 'claude-2') {
-            return async function* chustreamData() {
-                const decoder = new TextDecoder();
-                const reader = response.body.getReader();
-                let chu = '';
-                while (true) {
-                    const {done, value} = await reader.read();
-                    let decoded = decoder.decode(value);
-                    // Convert the decoded response to an array of lines
-                    const lines = decoded.trim().split('\n');
+        return async function* streamData() {
+            const decoder = new TextDecoder();
+            const reader = response.body.getReader();
+            let getMessage = "";
+            let messageBuffer = "";
+            while (true) {
+                const {done, value} = await reader.read();
+                let decoded = decoder.decode(value);
 
-                    for (const line of lines) {
-                        if (line.startsWith("data: ")) {
-                            try {
-                                const json_data = JSON.parse(line.substring(6).trim());
-                                if ('error' in json_data) {
-                                    console.log(json_data);
-                                } else if ('completion' in json_data) {
-                                    chu += json_data.completion
-                                    yield `${chu}\n`;
-                                }
-                            } catch (error) {
-                                // Handle JSON parsing errors, if needed
-                            }
-                        }
-                    }
-                    if (done) {
-                        return;
-                    }
+                // Claude's streaming SSE messages are separated by \r
+                if ((oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) || (extension_settings.claude2Chu.claude2ChuAuto_connect && generate_data.model === 'claude-2')) {
+                    decoded = decoded.replace(/\r/g, "");
                 }
-            }
-        } else {
-            return async function* streamData() {
-                const decoder = new TextDecoder();
-                const reader = response.body.getReader();
-                let getMessage = "";
-                let messageBuffer = "";
-                while (true) {
-                    const {done, value} = await reader.read();
-                    let decoded = decoder.decode(value);
 
-                    // Claude's streaming SSE messages are separated by \r
-                    if (oai_settings.chat_completion_source == chat_completion_sources.CLAUDE || generate_data.model === 'claude-2') {
-                        decoded = decoded.replace(/\r/g, "");
+                tryParseStreamingError(response, decoded);
+
+                let eventList = [];
+
+                // ReadableStream's buffer is not guaranteed to contain full SSE messages as they arrive in chunks
+                // We need to buffer chunks until we have one or more full messages (separated by double newlines)
+                if (!oai_settings.legacy_streaming) {
+                    messageBuffer += decoded;
+                    eventList = messageBuffer.split("\n\n");
+                    // Last element will be an empty string or a leftover partial message
+                    messageBuffer = eventList.pop();
+                } else {
+                    eventList = decoded.split("\n");
+                }
+
+                for (let event of eventList) {
+                    if (event.startsWith('event: completion')) {
+                        event = event.split("\n")[1];
                     }
 
-                    tryParseStreamingError(response, decoded);
+                    if (typeof event !== 'string' || !event.length)
+                        continue;
 
-                    let eventList = [];
-
-                    // ReadableStream's buffer is not guaranteed to contain full SSE messages as they arrive in chunks
-                    // We need to buffer chunks until we have one or more full messages (separated by double newlines)
-                    if (!oai_settings.legacy_streaming) {
-                        messageBuffer += decoded;
-                        eventList = messageBuffer.split("\n\n");
-                        // Last element will be an empty string or a leftover partial message
-                        messageBuffer = eventList.pop();
-                    } else {
-                        eventList = decoded.split("\n");
-                    }
-
-                    for (let event of eventList) {
-                        if (event.startsWith('event: completion')) {
-                            event = event.split("\n")[1];
-                        }
-
-                        if (typeof event !== 'string' || !event.length)
-                            continue;
-
-                        if (!event.startsWith("data"))
-                            continue;
-                        if (event == "data: [DONE]") {
-                            return;
-                        }
-                        let data = JSON.parse(event.substring(6));
-                        // the first and last messages are undefined, protect against that
-                        getMessage = getStreamingReply(getMessage, data);
-                        yield getMessage;
-                    }
-
-                    if (done) {
+                    if (!event.startsWith("data"))
+                        continue;
+                    if (event == "data: [DONE]") {
                         return;
                     }
+
+                    let data = JSON.parse(event.substring(6));
+                    // the first and last messages are undefined, protect against that
+                    getMessage = getStreamingReply(getMessage, data, generate_data.model);
+                    yield getMessage;
+                }
+
+                if (done) {
+                    return;
                 }
             }
         }
@@ -916,8 +884,8 @@ async function sendOpenAIRequest(type, openai_msgs_tosend, signal) {
     }
 }
 
-function getStreamingReply(getMessage, data) {
-    if ((oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) || (extension_settings.claude2Chu.claude2ChuAuto_connect && generate_data.model === 'claude-2')) {
+function getStreamingReply(getMessage, data, generate_data_model) {
+    if ((oai_settings.chat_completion_source == chat_completion_sources.CLAUDE) || (extension_settings.claude2Chu.claude2ChuAuto_connect && generate_data_model === 'claude-2')) {
         getMessage += data?.completion || "";
     } else {
         getMessage += data.choices[0]?.delta?.content || data.choices[0]?.message?.content || data.choices[0]?.text || "";
