@@ -281,7 +281,7 @@ async function loadSamplers() {
     $('#sd_sampler').empty();
     let samplers = [];
 
-    if (extension_settings.sd.horde) {
+    if (extension_settings.sd.horde && !extension_settings.sd.sd_API_set) {
         samplers = await loadHordeSamplers();
     } else {
         samplers = await loadExtrasSamplers();
@@ -331,7 +331,7 @@ async function loadModels() {
     $('#sd_model').empty();
     let models = [];
 
-    if (extension_settings.sd.horde) {
+    if (extension_settings.sd.horde && !extension_settings.sd.sd_API_set) {
         models = await loadHordeModels();
     } else {
         models = await loadExtrasModels();
@@ -530,7 +530,7 @@ async function generatePrompt(quiet_prompt) {
 }
 
 async function sendGenerationRequest(prompt, callback) {
-    if (extension_settings.sd.horde) {
+    if (extension_settings.sd.horde && !extension_settings.sd.sd_API_set) {
         await generateHordeImage(prompt, callback);
     } else {
         await generateExtrasImage(prompt, callback);
@@ -583,11 +583,12 @@ async function generateExtrasImage(prompt, callback) {
 }
 
 async function generateHordeImage(prompt, callback) {
+    let url;
     if (extension_settings.sd.sd_API_set) {
-        const url = new URL(extension_settings.sd.sd_API_set_vl || 'http://127.0.0.1:7860')
+        url = new URL(extension_settings.sd.sd_API_set_vl || 'http://127.0.0.1:7860')
         url.pathname = '/sdapi/v1/txt2img'
     } else {
-        const url = '/horde_generateimage';
+        url = '/horde_generateimage';
     }
     const result = await fetch(url, {
         method: 'POST',
@@ -700,7 +701,7 @@ function isConnectedToExtras() {
 }
 
 async function moduleWorker() {
-    if (isConnectedToExtras() || extension_settings.sd.horde) {
+    if (isConnectedToExtras() || (extension_settings.sd.horde || extension_settings.sd.sd_API_set)) {
         $('#sd_gen').show();
         $('.sd_message_gen').show();
     } else {
