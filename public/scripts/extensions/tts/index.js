@@ -1,13 +1,24 @@
-import { callPopup, cancelTtsPlay, eventSource, event_types, isMultigenEnabled, is_send_press, saveSettingsDebounced } from '../../../script.js'
-import { ModuleWorkerWrapper, extension_settings, getContext } from '../../extensions.js'
-import { escapeRegex, getStringHash } from '../../utils.js'
-import { EdgeTtsProvider } from './edge.js'
-import { ElevenLabsTtsProvider } from './elevenlabs.js'
-import { SileroTtsProvider } from './silerotts.js'
-import { SystemTtsProvider } from './system.js'
-import { NovelTtsProvider } from './novel.js'
-import { isMobile } from '../../RossAscends-mods.js'
-import { power_user } from '../../power-user.js'
+import {
+    callPopup,
+    cancelTtsPlay,
+    eventSource,
+    event_types,
+    isMultigenEnabled,
+    is_send_press,
+    saveSettingsDebounced
+} from '../../../script.js'
+import {ModuleWorkerWrapper, extension_settings, getContext} from '../../extensions.js'
+import {escapeRegex, getStringHash} from '../../utils.js'
+import {EdgeTtsProvider} from './edge.js'
+import {ElevenLabsTtsProvider} from './elevenlabs.js'
+import {SileroTtsProvider} from './silerotts.js'
+import {SystemTtsProvider} from './system.js'
+import {NovelTtsProvider} from './novel.js'
+import {CHUTtsProvider} from './chuTtsProvider.js'
+
+
+import {isMobile} from '../../RossAscends-mods.js'
+import {power_user} from '../../power-user.js'
 
 const UPDATE_INTERVAL = 1000
 
@@ -66,6 +77,7 @@ let ttsProviders = {
     System: SystemTtsProvider,
     Edge: EdgeTtsProvider,
     Novel: NovelTtsProvider,
+    Chu: CHUTtsProvider,
 }
 let ttsProvider
 let ttsProviderName
@@ -213,6 +225,7 @@ function debugTtsPlayback() {
         }
     ))
 }
+
 window.debugTtsPlayback = debugTtsPlayback
 
 //##################//
@@ -248,13 +261,43 @@ async function playAudioData(audioBlob) {
 }
 
 window['tts_preview'] = function (id) {
-    const audio = document.getElementById(id)
+    if (extension_settings.tts.currentProvider === 'Chu') {
+        console.log(id)
+        const selectedVoice = ttsProvider.settings.voicelists.find(voice => voice.id === parseInt(id));
 
-    if (audio && !$(audio).data('disabled')) {
-        audio.play()
+        if (selectedVoice) {
+            const supportedLanguages = selectedVoice.lang[0];
+            const supportedid = selectedVoice.id;
+            sendChuTtstest('你好,旅行者~', supportedid, supportedLanguages);
+        }
+    } else {
+        const audio = document.getElementById(id)
+        if (audio && !$(audio).data('disabled')) {
+            audio.play()
+        } else {
+            ttsProvider.previewTtsVoice(id)
+        }
     }
-    else {
-        ttsProvider.previewTtsVoice(id)
+}
+
+async function addTtsVoicelist(voiceIds) {
+    for (const voice of voiceIds) {
+        const {id, name, lang} = voice;
+        $('#chu_tts').append($('<option />').val(id).text(`${id}.[${name}]`));
+    }
+    const selectedVoiceId = $('#chu_tts').val();
+    let languageIndex = 1;
+    let id, name, lang;
+
+    if (!selectedVoiceId) {
+        const {id: defaultId, name: defaultName, lang: defaultLang} = voiceIds[0];
+        id = defaultId;
+        name = defaultName;
+        lang = defaultLang;
+        for (const language of lang) {
+            $('#chu_tts_lang').append($('<option />').val(language).text(`${languageIndex}.[${language}]`));
+            languageIndex++;
+        }
     }
 }
 
@@ -263,20 +306,36 @@ async function onTtsVoicesClick() {
 
     try {
         const voiceIds = await ttsProvider.fetchTtsVoiceIds()
-
-        for (const voice of voiceIds) {
-            popupText += `
+        if (extension_settings.tts.currentProvider === 'Chu') {
+            await addTtsVoicelist(voiceIds)
+            for (const voice of voiceIds) {
+                const {id, name, lang} = voice;
+                popupText += `
+        <div class="voice_preview">`;
+                popupText += `
+            <b class="voice_name">${name}</b>
+            <i onclick="tts_preview('${id}')" class="fa-solid fa-play"></i>
+        </div>`;
+            }
+        } else {
+            for (const voice of voiceIds) {
+                popupText += `
             <div class="voice_preview">
                 <span class="voice_lang">${voice.lang || ''}</span>
                 <b class="voice_name">${voice.name}</b>
                 <i onclick="tts_preview('${voice.voice_id}')" class="fa-solid fa-play"></i>
             </div>`
-            if (voice.preview_url) {
-                popupText += `<audio id="${voice.voice_id}" src="${voice.preview_url}" data-disabled="${voice.preview_url == false}"></audio>`
+                if (voice.preview_url) {
+                    popupText += `<audio id="${voice.voice_id}" src="${voice.preview_url}" data-disabled="${voice.preview_url == false}"></audio>`
+                }
             }
         }
     } catch {
-        popupText = 'Could not load voices list. Check your API key.'
+        if (extension_settings.tts.currentProvider === 'Chu') {
+            popupText = '先输入TTS地址，检测当前地址是否可用.'
+        } else {
+            popupText = 'Could not load voices list. Check your API key.'
+        }
     }
 
     callPopup(popupText, 'text')
@@ -387,6 +446,12 @@ async function tts(text, voiceId) {
     completeTtsJob()
 }
 
+async function chutts(text, voiceId, lang) {
+    const response = await ttsProvider.generateTts(text, voiceId, lang)
+    addAudioJob(response)
+    completeTtsJob()
+}
+
 async function processTtsQueue() {
     // Called each moduleWorker iteration to pull chat messages from queue
     if (currentTtsJob || ttsJobQueue.length <= 0 || audioPaused) {
@@ -423,17 +488,30 @@ async function processTtsQueue() {
             return;
         }
 
-        if (!voiceMap[char]) {
+        if (!voiceMap[char] && extension_settings.tts.currentProvider != 'Chu') {
             throw `${char} not in voicemap. Configure character in extension settings voice map`
         }
-        const voice = await ttsProvider.getVoice((voiceMap[char]))
-        const voiceId = voice.voice_id
-        if (voiceId == null) {
-            toastr.error(`Specified voice for ${char} was not found. Check the TTS extension settings.`)
-            throw `Unable to attain voiceId for ${char}`
+        if (extension_settings.tts.currentProvider === 'Chu' && !voiceMap[char]) {
+            if (extension_settings.tts.currentProvider === 'Chu' && ttsProvider.settings.apiKey && ttsProvider.settings.voicelists) {
+                const selectedVoiceId = $('#chu_tts').val();
+                const selectedVoicelang = $('#chu_tts_lang').val();
+                chutts(text, selectedVoiceId, selectedVoicelang)
+            } else {
+                toastr.error(`TTS配置不完全`)
+                throw `TTS配置不完全`
+            }
+        } else {
+            console.log(voiceMap[char])
+            const voice = await ttsProvider.getVoice((voiceMap[char]))
+            const voiceId = voice.voice_id
+            if (voiceId == null) {
+                toastr.error(`Specified voice for ${char} was not found. Check the TTS extension settings.`)
+                throw `Unable to attain voiceId for ${char}`
+            }
+            tts(text, voiceId)
         }
-        tts(text, voiceId)
-    } catch (error) {
+    } catch
+        (error) {
         console.error(error)
         currentTtsJob = null
     }
@@ -445,6 +523,7 @@ async function playFullConversation() {
     const chat = context.chat
     ttsJobQueue = chat
 }
+
 window.playFullConversation = playFullConversation
 
 //#############################//
@@ -530,11 +609,16 @@ function onApplyClick() {
     Promise.all([
         ttsProvider.onApplyClick(),
         updateVoiceMap()
-    ]).then(() => {
+    ]).then(async () => {
         extension_settings.tts[ttsProviderName] = ttsProvider.settings
         saveSettingsDebounced()
-        setTtsStatus('Successfully applied settings', true)
-        console.info(`Saved settings ${ttsProviderName} ${JSON.stringify(ttsProvider.settings)}`)
+        if (extension_settings.tts.currentProvider === 'Chu') {
+            setTtsStatus('设置API成功', true)
+            await addTtsVoicelist(ttsProvider.settings.voicelists)
+        } else {
+            setTtsStatus('Successfully applied settings', true)
+            console.info(`Saved settings ${ttsProviderName} ${JSON.stringify(ttsProvider.settings)}`)
+        }
     }).catch(error => {
         console.error(error)
         setTtsStatus(error, false)
@@ -615,6 +699,38 @@ function onTtsProviderChange() {
     loadTtsProvider(ttsProviderSelection)
 }
 
+function sendChuTtstest(text, id, lang) {
+    const format = 'mp3';
+    const url = `${ttsProvider.settings.apiKey}/voice/vits?text=${encodeURIComponent(text)}&id=${id}&lang=${lang}&format=${format}`;
+
+
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.blob(); // 将响应转换为Blob对象（音频文件）
+        })
+        .then(audioBlob => {
+            // 在这里可以对音频Blob对象进行处理，比如保存、播放等操作
+            // 例如，创建一个音频元素并播放音频
+            const audio = new Audio(URL.createObjectURL(audioBlob));
+            audio.play();
+        })
+        .catch(error => {
+            console.error('Error fetching data:', error);
+        });
+}
+
+function updateChuTtsLangOptions(languages) {
+    $('#chu_tts_lang').empty();
+    let languageIndex = 1;
+    for (const language of languages) {
+        $('#chu_tts_lang').append($('<option />').val(language).text(`${languageIndex}.[${language}]`));
+        languageIndex++;
+    }
+}
+
 function onTtsProviderSettingsInput() {
     ttsProvider.onSettingsChange()
 
@@ -622,9 +738,20 @@ function onTtsProviderSettingsInput() {
 
     extension_settings.tts[ttsProviderName] = ttsProvider.setttings
     saveSettingsDebounced()
-    console.info(`Saved settings ${ttsProviderName} ${JSON.stringify(ttsProvider.settings)}`)
-}
+    if (extension_settings.tts.currentProvider === 'Chu' && ttsProvider.settings.voicelists != '') {
+        const selectedVoiceId = $('#chu_tts').val();
+        const selectedVoice = ttsProvider.settings.voicelists.find(voice => voice.id === parseInt(selectedVoiceId));
 
+        if (selectedVoice) {
+            const supportedLanguages = selectedVoice.lang;
+            updateChuTtsLangOptions(supportedLanguages);
+        }
+    } else {
+        if (extension_settings.tts.currentProvider !== 'Chu') {
+            console.info(`Saved settings ${ttsProviderName} ${JSON.stringify(ttsProvider.settings)}`)
+        }
+    }
+}
 
 
 $(document).ready(function () {
@@ -696,6 +823,8 @@ $(document).ready(function () {
         $('#tts_provider').on('change', onTtsProviderChange)
         $(document).on('click', '.mes_narrate', onNarrateOneMessage);
     }
+
+
     addExtensionControls() // No init dependencies
     loadSettings() // Depends on Extension Controls and loadTtsProvider
     loadTtsProvider(extension_settings.tts.currentProvider) // No dependencies
